@@ -1,0 +1,2306 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>스트라이커 아레나 EX: 스킬 아케이드 축구</title>
+    <!-- Tailwind CSS 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 구글 폰트: 블랙 한 산스 & Noto Sans KR -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&amp;family=Noto+Sans+KR:wght@400;600;700;900&amp;display=swap" rel="stylesheet">
+    
+    <style>
+        /* 커스텀 스타일 및 게임 전용 애니메이션 */
+        :root {
+            --pitch-green-dark: #1b5e20;
+            --pitch-green-light: #2e7d32;
+            --accent-gold: #fbbf24;
+            --team-blue: #3b82f6;
+            --team-red: #ef4444;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background: radial-gradient(circle at center, #0f172a 0%, #020617 100%);
+            color: #f8fafc;
+            overflow-x: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .font-arcade {
+            font-family: 'Black Han Sans', sans-serif;
+            letter-spacing: 0.03em;
+        }
+
+        /* 경기장 캔버스 래퍼 및 비율 유지 */
+        #pitch-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 1040px;
+            aspect-ratio: 16 / 10;
+            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.85), 0 0 35px rgba(16, 185, 129, 0.2);
+            border-radius: 1.25rem;
+            overflow: hidden;
+            border: 4px solid #334155;
+            background: #14532d;
+        }
+
+        @media (max-width: 640px) {
+            #pitch-wrapper {
+                aspect-ratio: 16 / 11;
+                border-width: 2px;
+                border-radius: 0.75rem;
+            }
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 글래스모피즘 패널 */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+        }
+
+        /* 버튼 스타일 및 입체감 */
+        .btn-arcade {
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 0 rgba(0, 0, 0, 0.45);
+        }
+        .btn-arcade:active {
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+        }
+
+        /* 골 세리머니 배너 애니메이션 */
+        @keyframes goalBannerPop {
+            0% { transform: scale(0.3) rotate(-6deg); opacity: 0; }
+            50% { transform: scale(1.12) rotate(2deg); opacity: 1; }
+            75% { transform: scale(0.96) rotate(-1deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+
+        .animate-goal-pop {
+            animation: goalBannerPop 0.55s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        /* 스코어보드 전광판 숫자 폰트 */
+        .scoreboard-digit {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 모바일 가상 조이스틱 / 버튼 활성 효과 */
+        .touch-ctrl-btn {
+            background: rgba(30, 41, 59, 0.88);
+            border: 2px solid rgba(148, 163, 184, 0.35);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.45);
+            transition: transform 0.08s ease, background-color 0.08s ease;
+        }
+        .touch-ctrl-btn:active, .touch-ctrl-btn.active {
+            transform: scale(0.92);
+            background: rgba(59, 130, 246, 0.65);
+            border-color: #60a5fa;
+        }
+
+        /* 스킬 버튼 전용 스타일 */
+        .skill-btn {
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.1s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .skill-btn:not(:disabled):hover {
+            transform: translateY(-2px);
+        }
+        .skill-btn:not(:disabled):active {
+            transform: scale(0.94);
+        }
+        .skill-btn.ready-glow {
+            box-shadow: 0 0 16px rgba(251, 191, 36, 0.35);
+        }
+        .skill-cd-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(2, 6, 23, 0.78);
+            pointer-events: none;
+            transition: height 0.06s linear;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between py-2.5 px-2.5 sm:py-4 sm:px-6">
+
+    <!-- 상단 헤더 & 스코어보드 -->
+    <header class="w-full max-w-[1040px] mb-2.5">
+        <div class="glass-panel rounded-2xl p-2 sm:px-5 sm:py-2.5 flex flex-wrap items-center justify-between gap-2 shadow-xl">
+            
+            <!-- 중앙 전광판 (PLAYER vs CPU) + 슬림 통합 게이지 -->
+            <div class="flex flex-col items-center mx-auto sm:mx-0">
+                <div class="flex items-center bg-slate-950/90 border border-slate-700/80 rounded-xl px-3 py-1 sm:px-4 sm:py-1.5 gap-3 sm:gap-4 shadow-inner">
+                    <!-- 블루팀 (플레이어) -->
+                    <div class="flex items-center gap-1.5 sm:gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]"></span>
+                        <span class="font-bold text-xs sm:text-sm text-blue-300 tracking-wider">PLAYER</span>
+                        <span id="score-player" class="font-arcade text-xl sm:text-2xl text-white scoreboard-digit ml-1">0</span>
+                    </div>
+
+                    <!-- 타이머 -->
+                    <div class="flex flex-col items-center px-2 sm:px-3 py-0.5 bg-slate-900 rounded-lg border border-slate-800">
+                        <span id="match-timer" class="font-arcade text-base sm:text-xl text-amber-400 scoreboard-digit leading-none">90</span>
+                        <span class="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">TIME</span>
+                    </div>
+
+                    <!-- 레드팀 (CPU) -->
+                    <div class="flex items-center gap-1.5 sm:gap-2">
+                        <span id="score-cpu" class="font-arcade text-xl sm:text-2xl text-white scoreboard-digit mr-1">0</span>
+                        <span class="font-bold text-xs sm:text-sm text-rose-300 tracking-wider">CPU</span>
+                        <span class="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_#ef4444]"></span>
+                    </div>
+                </div>
+
+                <!-- 경기장 밖 상단 전광판 하단 초슬림 질주/파워 인디케이터 -->
+                <div id="live-hud" class="w-full flex items-center justify-between gap-2 mt-1 px-1">
+                    <div class="flex items-center gap-1.5 flex-1">
+                        <span class="text-[10px] font-bold text-cyan-300 shrink-0">⚡질주</span>
+                        <div class="w-full h-1.5 bg-slate-800/90 rounded-full overflow-hidden border border-slate-700/70">
+                            <div id="hud-stamina-bar" class="h-full bg-gradient-to-r from-cyan-400 to-blue-500 w-full transition-all duration-75"></div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5 flex-1">
+                        <span class="text-[10px] font-bold text-amber-300 shrink-0">🔥파워</span>
+                        <div class="w-full h-1.5 bg-slate-800/90 rounded-full overflow-hidden border border-slate-700/70">
+                            <div id="hud-power-bar" class="h-full bg-gradient-to-r from-amber-400 via-orange-500 to-rose-600 w-0 transition-all duration-75"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 우측 컨트롤 (난이도, 시간, 사운드, 리셋) -->
+            <div class="flex items-center gap-1.5 sm:gap-2 ml-auto sm:ml-0">
+                <!-- 난이도 선택 (입문/쉬움이 기본값) -->
+                <select id="select-difficulty" aria-label="난이도 선택" class="bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-semibold text-emerald-300 rounded-xl px-2.5 py-2 border border-slate-600 focus:outline-none focus:border-emerald-400 cursor-pointer">
+                    <option value="easy" selected="">난이도: 입문·쉬움</option>
+                    <option value="normal">난이도: 보통</option>
+                    <option value="hard">난이도: 도전</option>
+                </select>
+
+                <!-- 경기 시간 선택 -->
+                <select id="select-duration" aria-label="경기 시간 선택" class="bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm font-semibold text-slate-100 rounded-xl px-2.5 py-2 border border-slate-600 focus:outline-none focus:border-emerald-400 cursor-pointer">
+                    <option value="60">60초</option>
+                    <option value="90" selected="">90초</option>
+                    <option value="120">120초</option>
+                </select>
+
+                <!-- 사운드 토글 버튼 -->
+                <button id="btn-mute" title="효과음 켜기/끄기" class="btn-arcade bg-slate-800 hover:bg-slate-700 text-slate-200 p-2 rounded-xl border border-slate-600 flex items-center justify-center">
+                    <span id="icon-sound" class="text-base sm:text-lg leading-none">🔊</span>
+                </button>
+
+                <!-- 빠른 재시작 버튼 -->
+                <button id="btn-quick-restart" title="새 경기 시작" class="btn-arcade bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm px-3 py-2 rounded-xl border border-emerald-400/50">
+                    재시작
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 메인 경기장 캔버스 영역 -->
+    <main class="w-full flex-1 flex flex-col items-center justify-center my-auto">
+        <div id="pitch-wrapper">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- 골 세리머니 배너 오버레이 -->
+            <div id="goal-overlay" class="hidden pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-slate-950/35 z-20">
+                <div id="goal-banner-box" class="bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-slate-950 px-8 py-4 sm:px-12 sm:py-6 rounded-3xl shadow-[0_0_50px_rgba(251,191,36,0.85)] border-4 border-white text-center">
+                    <p id="goal-scorer-text" class="text-xs sm:text-base font-black tracking-widest uppercase mb-1">PLAYER TEAM SCORES!</p>
+                    <h2 class="font-arcade text-4xl sm:text-7xl tracking-wider drop-shadow">GOAL!! ⚽</h2>
+                </div>
+            </div>
+
+            <!-- 시작 화면 오버레이 -->
+            <div id="start-overlay" class="absolute inset-0 bg-slate-950/82 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-30">
+                <div class="glass-panel max-w-xl w-full rounded-3xl p-4 sm:p-7 text-center border border-emerald-400/35 shadow-2xl">
+                    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-bold mb-2">
+                        <span>초보자 맞춤 드리블·조준 어시스트</span>
+                        <span>•</span>
+                        <span>필살기 3종 탑재</span>
+                    </div>
+                    <h2 class="font-arcade text-3xl sm:text-5xl text-white mb-1.5 tracking-wide">
+                        스트라이커 아레나 EX
+                    </h2>
+                    <p class="text-slate-300 text-xs sm:text-sm mb-4 leading-relaxed">
+                        공이 발에 착 감기는 <strong class="text-emerald-300">자동 드리블</strong>과 <strong class="text-amber-300">골문 조준 보정</strong>으로 누구나 쉽게 골을 넣을 수 있어요!<br>
+                        쿨타임마다 강력한 <strong class="text-cyan-300">액티브 스킬</strong>을 터뜨려 경기를 지배해 보세요.
+                    </p>
+
+                    <!-- 스킬 3종 소개 카드 -->
+                    <div class="grid grid-cols-3 gap-2 sm:gap-2.5 mb-4 text-left">
+                        <div class="bg-gradient-to-b from-orange-950/80 to-slate-900/95 p-2.5 sm:p-3 rounded-2xl border border-orange-500/40">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-orange-400 font-black text-xs sm:text-sm">🔥 파워 캐논</span>
+                                <kbd class="px-1.5 py-0.5 bg-orange-500/20 border border-orange-400/40 rounded text-[10px] text-orange-200 font-mono">Q / 1</kbd>
+                            </div>
+                            <p class="text-[10px] sm:text-xs text-slate-300 leading-snug">
+                                주변 공을 끌어와 골문 구석으로 <span class="text-orange-300 font-bold">불꽃 강슛</span> 발사!
+                            </p>
+                        </div>
+                        <div class="bg-gradient-to-b from-cyan-950/80 to-slate-900/95 p-2.5 sm:p-3 rounded-2xl border border-cyan-500/40">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-cyan-400 font-black text-xs sm:text-sm">⚡ 팬텀 대시</span>
+                                <kbd class="px-1.5 py-0.5 bg-cyan-500/20 border border-cyan-400/40 rounded text-[10px] text-cyan-200 font-mono">E / 2</kbd>
+                            </div>
+                            <p class="text-[10px] sm:text-xs text-slate-300 leading-snug">
+                                순간 무적 가속 돌파! 부딪힌 수비수를 <span class="text-cyan-300 font-bold">튕겨냄</span>
+                            </p>
+                        </div>
+                        <div class="bg-gradient-to-b from-purple-950/80 to-slate-900/95 p-2.5 sm:p-3 rounded-2xl border border-purple-500/40">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-purple-400 font-black text-xs sm:text-sm">🧲 중력 스틸</span>
+                                <kbd class="px-1.5 py-0.5 bg-purple-500/20 border border-purple-400/40 rounded text-[10px] text-purple-200 font-mono">R / 3</kbd>
+                            </div>
+                            <p class="text-[10px] sm:text-xs text-slate-300 leading-snug">
+                                충격파로 상대를 <span class="text-purple-300 font-bold">기절</span>시키고 공을 즉시 흡수!
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- 기본 조작 한 줄 요약 -->
+                    <div class="flex flex-wrap items-center justify-center gap-3 text-[11px] sm:text-xs text-slate-300 bg-slate-900/80 py-2 px-3 rounded-xl border border-slate-800 mb-5">
+                        <span>이동: <kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-white font-mono">WASD</kbd> / <kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-white font-mono">방향키</kbd></span>
+                        <span>•</span>
+                        <span>슛: <kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-white font-mono">Space</kbd> (자동 골문 조준)</span>
+                        <span>•</span>
+                        <span>질주: <kbd class="px-1.5 py-0.5 bg-slate-800 rounded text-white font-mono">Shift</kbd></span>
+                    </div>
+
+                    <button id="btn-start-match" class="btn-arcade w-full py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-arcade text-xl sm:text-2xl tracking-wider shadow-lg shadow-emerald-500/25 cursor-pointer">
+                        경기 시작 (KICK OFF) ⚽
+                    </button>
+                </div>
+            </div>
+
+            <!-- 경기 종료 통계 모달 오버레이 -->
+            <div id="gameover-overlay" class="hidden absolute inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-30">
+                <div class="glass-panel max-w-md w-full rounded-3xl p-5 sm:p-7 text-center border border-slate-600 shadow-2xl">
+                    <span class="text-xs font-bold tracking-widest text-amber-400 uppercase">FULL TIME · 경기 종료</span>
+                    <h2 id="result-headline" class="font-arcade text-3xl sm:text-4xl text-white mt-1 mb-4">
+                        승리했습니다! 🏆
+                    </h2>
+
+                    <!-- 최종 스코어 -->
+                    <div class="flex items-center justify-center gap-6 bg-slate-900/90 rounded-2xl py-3 px-5 mb-5 border border-slate-700">
+                        <div class="text-center">
+                            <div class="text-xs font-bold text-blue-400">PLAYER</div>
+                            <div id="final-score-player" class="font-arcade text-4xl text-white mt-0.5">0</div>
+                        </div>
+                        <div class="font-arcade text-2xl text-slate-500">:</div>
+                        <div class="text-center">
+                            <div class="text-xs font-bold text-rose-400">CPU</div>
+                            <div id="final-score-cpu" class="font-arcade text-4xl text-white mt-0.5">0</div>
+                        </div>
+                    </div>
+
+                    <!-- 경기 세부 통계 -->
+                    <div class="space-y-2.5 text-xs sm:text-sm mb-6 bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+                        <div class="flex justify-between items-center">
+                            <span id="stat-shots-p" class="font-bold text-blue-300 w-12 text-left">0</span>
+                            <span class="text-slate-400 font-semibold">전체 슈팅 수</span>
+                            <span id="stat-shots-c" class="font-bold text-rose-300 w-12 text-right">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span id="stat-sot-p" class="font-bold text-blue-300 w-12 text-left">0</span>
+                            <span class="text-slate-400 font-semibold">유효 슈팅</span>
+                            <span id="stat-sot-c" class="font-bold text-rose-300 w-12 text-right">0</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span id="stat-skills-p" class="font-bold text-amber-300 w-12 text-left">0회</span>
+                            <span class="text-slate-400 font-semibold">스킬 발동 횟수</span>
+                            <span id="stat-poss-p" class="font-bold text-cyan-300 w-12 text-right">50%</span>
+                        </div>
+                    </div>
+
+                    <button id="btn-play-again" class="btn-arcade w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-400 hover:to-indigo-400 text-white font-arcade text-xl tracking-wider shadow-lg cursor-pointer">
+                        다시 하기 🔄
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 하단 컨트롤 바: 방향키 + 액티브 스킬 바 + 질주/슛 -->
+    <footer class="w-full max-w-[1040px] mt-2.5">
+        <div class="flex items-center justify-between gap-2 sm:gap-3 px-1">
+            <!-- 좌측 방향키 패드 -->
+            <div class="grid grid-cols-3 gap-1 w-28 sm:w-36 shrink-0">
+                <div></div>
+                <button id="touch-up" aria-label="위로 이동" class="touch-ctrl-btn h-9 sm:h-11 rounded-xl flex items-center justify-center text-white font-bold text-sm sm:text-base">▲</button>
+                <div></div>
+                <button id="touch-left" aria-label="왼쪽 이동" class="touch-ctrl-btn h-9 sm:h-11 rounded-xl flex items-center justify-center text-white font-bold text-sm sm:text-base">◀</button>
+                <button id="touch-down" aria-label="아래로 이동" class="touch-ctrl-btn h-9 sm:h-11 rounded-xl flex items-center justify-center text-white font-bold text-sm sm:text-base">▼</button>
+                <button id="touch-right" aria-label="오른쪽 이동" class="touch-ctrl-btn h-9 sm:h-11 rounded-xl flex items-center justify-center text-white font-bold text-sm sm:text-base">▶</button>
+            </div>
+
+            <!-- 중앙 3종 액티브 스킬 버튼 패널 (클릭/터치 및 Q·E·R / 1·2·3 단축키) -->
+            <div class="flex items-center justify-center gap-1.5 sm:gap-3 flex-1 max-w-md">
+                <!-- 스킬 1: 파워 캐논 슛 -->
+                <button id="btn-skill-cannon" class="skill-btn ready-glow flex-1 h-14 sm:h-16 rounded-2xl bg-gradient-to-b from-orange-500/30 to-rose-950/85 border-2 border-orange-400/70 flex flex-col items-center justify-center px-1.5 cursor-pointer">
+                    <div id="cd-skill-cannon" class="skill-cd-overlay" style="height: 0%;"></div>
+                    <span class="relative z-10 text-base sm:text-lg leading-none">🔥</span>
+                    <span class="relative z-10 text-[10px] sm:text-xs font-black text-orange-200 mt-0.5 whitespace-nowrap">캐논슛 [Q]</span>
+                    <span id="txt-skill-cannon" class="relative z-10 text-[9px] font-bold text-amber-300">READY</span>
+                </button>
+
+                <!-- 스킬 2: 팬텀 대시 -->
+                <button id="btn-skill-dash" class="skill-btn ready-glow flex-1 h-14 sm:h-16 rounded-2xl bg-gradient-to-b from-cyan-500/30 to-sky-950/85 border-2 border-cyan-400/70 flex flex-col items-center justify-center px-1.5 cursor-pointer">
+                    <div id="cd-skill-dash" class="skill-cd-overlay" style="height: 0%;"></div>
+                    <span class="relative z-10 text-base sm:text-lg leading-none">⚡</span>
+                    <span class="relative z-10 text-[10px] sm:text-xs font-black text-cyan-200 mt-0.5 whitespace-nowrap">대시 [E]</span>
+                    <span id="txt-skill-dash" class="relative z-10 text-[9px] font-bold text-cyan-300">READY</span>
+                </button>
+
+                <!-- 스킬 3: 중력 스틸 -->
+                <button id="btn-skill-magnet" class="skill-btn ready-glow flex-1 h-14 sm:h-16 rounded-2xl bg-gradient-to-b from-purple-500/30 to-indigo-950/85 border-2 border-purple-400/70 flex flex-col items-center justify-center px-1.5 cursor-pointer">
+                    <div id="cd-skill-magnet" class="skill-cd-overlay" style="height: 0%;"></div>
+                    <span class="relative z-10 text-base sm:text-lg leading-none">🧲</span>
+                    <span class="relative z-10 text-[10px] sm:text-xs font-black text-purple-200 mt-0.5 whitespace-nowrap">스틸 [R]</span>
+                    <span id="txt-skill-magnet" class="relative z-10 text-[9px] font-bold text-purple-300">READY</span>
+                </button>
+            </div>
+
+            <!-- 우측 액션 버튼 (질주 & 슛) -->
+            <div class="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+                <button id="touch-sprint" class="touch-ctrl-btn px-3 sm:px-4 h-14 sm:h-16 rounded-2xl flex flex-col items-center justify-center text-cyan-300 border-cyan-500/40">
+                    <span class="text-sm sm:text-base">💨</span>
+                    <span class="text-[10px] sm:text-xs font-black">질주</span>
+                </button>
+                <button id="touch-kick" class="touch-ctrl-btn px-4 sm:px-6 h-14 sm:h-16 rounded-2xl flex flex-col items-center justify-center text-amber-300 border-amber-500/60 bg-amber-500/20">
+                    <span class="text-sm sm:text-base">⚽</span>
+                    <span class="text-[10px] sm:text-xs font-black">슛/패스</span>
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        /**
+         * ============================================================================
+         * 스트라이커 아레나 EX (Striker Arena EX) - 스킬 & 어시스트 강화 축구 엔진
+         * ============================================================================
+         */
+
+        // ============================================================================
+        // 1. Web Audio API 사운드 매니저 (스킬 효과음 포함)
+        // ============================================================================
+        class SoundManager {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) {
+                        this.ctx = new AudioCtx();
+                    }
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            toggleMute() {
+                this.muted = !this.muted;
+                return this.muted;
+            }
+
+            playKick(power = 0.5) {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = power > 0.7 ? 'triangle' : 'sine';
+                const startFreq = 145 + power * 95;
+                osc.frequency.setValueAtTime(startFreq, now);
+                osc.frequency.exponentialRampToValueAtTime(38, now + 0.14);
+
+                gain.gain.setValueAtTime(0.35 + power * 0.25, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.16);
+            }
+
+            // 스킬 1: 파워 캐논 슛 폭발음
+            playCannonBoom() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.exponentialRampToValueAtTime(28, now + 0.35);
+
+                gain.gain.setValueAtTime(0.45, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.37);
+            }
+
+            // 스킬 2: 팬텀 대시 슝~ 소리
+            playDashWhoosh() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(260, now);
+                osc.frequency.exponentialRampToValueAtTime(780, now + 0.18);
+
+                gain.gain.setValueAtTime(0.28, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.21);
+            }
+
+            // 스킬 3: 중력 스틸 전자기 파동음
+            playMagnetZap() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(680, now);
+                osc.frequency.exponentialRampToValueAtTime(190, now + 0.28);
+
+                gain.gain.setValueAtTime(0.32, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.29);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+
+            playPostHit() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(520, now);
+                osc.frequency.exponentialRampToValueAtTime(290, now + 0.35);
+
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.37);
+            }
+
+            playWhistle(long = false) {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const duration = long ? 0.65 : 0.28;
+                const osc = this.ctx.createOscillator();
+                const lfo = this.ctx.createOscillator();
+                const lfoGain = this.ctx.createGain();
+                const gain = this.ctx.createGain();
+
+                lfo.frequency.value = 34;
+                lfoGain.gain.value = 110;
+                lfo.connect(lfoGain);
+                lfoGain.connect(osc.frequency);
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(2750, now);
+
+                gain.gain.setValueAtTime(0.01, now);
+                gain.gain.linearRampToValueAtTime(0.22, now + 0.03);
+                gain.gain.setValueAtTime(0.22, now + duration - 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                lfo.start(now);
+                osc.start(now);
+                lfo.stop(now + duration + 0.02);
+                osc.stop(now + duration + 0.02);
+            }
+
+            playGoalCheer() {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                const now = this.ctx.currentTime;
+                const bufferSize = this.ctx.sampleRate * 1.4;
+                const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    output[i] = Math.random() * 2 - 1;
+                }
+
+                const whiteNoise = this.ctx.createBufferSource();
+                whiteNoise.buffer = noiseBuffer;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(650, now);
+                filter.Q.value = 0.7;
+
+                const noiseGain = this.ctx.createGain();
+                noiseGain.gain.setValueAtTime(0.01, now);
+                noiseGain.gain.linearRampToValueAtTime(0.28, now + 0.2);
+                noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+
+                whiteNoise.connect(filter);
+                filter.connect(noiseGain);
+                noiseGain.connect(this.ctx.destination);
+                whiteNoise.start(now);
+
+                const freqs = [523.25, 659.25, 783.99, 1046.5];
+                freqs.forEach((f, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const g = this.ctx.createGain();
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(f, now + idx * 0.07);
+                    g.gain.setValueAtTime(0.14, now + idx * 0.07);
+                    g.gain.exponentialRampToValueAtTime(0.001, now + 0.9 + idx * 0.07);
+                    osc.connect(g);
+                    g.connect(this.ctx.destination);
+                    osc.start(now + idx * 0.07);
+                    osc.stop(now + 0.95 + idx * 0.07);
+                });
+            }
+        }
+
+        const sound = new SoundManager();
+
+        // ============================================================================
+        // 2. 게임 상수 및 난이도 프리셋 (더 시원하고 쉽게 조정)
+        // ============================================================================
+        const WORLD_W = 1200;
+        const WORLD_H = 750;
+        const PITCH_MARGIN_X = 75;
+        const PITCH_MARGIN_Y = 55;
+        const FIELD_LEFT = PITCH_MARGIN_X;
+        const FIELD_RIGHT = WORLD_W - PITCH_MARGIN_X;
+        const FIELD_TOP = PITCH_MARGIN_Y;
+        const FIELD_BOTTOM = WORLD_H - PITCH_MARGIN_Y;
+        const FIELD_W = FIELD_RIGHT - FIELD_LEFT;
+        const FIELD_H = FIELD_BOTTOM - FIELD_TOP;
+
+        // 골대 규격을 시원하게 확대 (175 -> 215)
+        const GOAL_WIDTH = 215;
+        const GOAL_DEPTH = 48;
+        const GOAL_TOP = (WORLD_H - GOAL_WIDTH) / 2;
+        const GOAL_BOTTOM = (WORLD_H + GOAL_WIDTH) / 2;
+
+        // 난이도별 AI 설정 (입문·쉬움은 훨씬 쾌적하게 득점 가능)
+        const DIFFICULTY_PRESETS = {
+            easy: {
+                aiSpeed: 195,
+                aiKeeperSpeed: 135,
+                aiKickPower: 580,
+                aiReaction: 0.62,
+                aiShootAccuracy: 0.25,
+                aimAssistStrength: 0.78
+            },
+            normal: {
+                aiSpeed: 260,
+                aiKeeperSpeed: 205,
+                aiKickPower: 760,
+                aiReaction: 0.82,
+                aiShootAccuracy: 0.55,
+                aimAssistStrength: 0.62
+            },
+            hard: {
+                aiSpeed: 325,
+                aiKeeperSpeed: 275,
+                aiKickPower: 920,
+                aiReaction: 0.95,
+                aiShootAccuracy: 0.85,
+                aimAssistStrength: 0.45
+            }
+        };
+
+        // DOM 요소 캐싱
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const pitchWrapper = document.getElementById('pitch-wrapper');
+
+        const scorePlayerEl = document.getElementById('score-player');
+        const scoreCpuEl = document.getElementById('score-cpu');
+        const timerEl = document.getElementById('match-timer');
+        const statusBadgeEl = document.getElementById('match-status-badge');
+        const staminaBarEl = document.getElementById('hud-stamina-bar');
+        const powerBarEl = document.getElementById('hud-power-bar');
+
+        const startOverlay = document.getElementById('start-overlay');
+        const goalOverlay = document.getElementById('goal-overlay');
+        const goalBannerBox = document.getElementById('goal-banner-box');
+        const goalScorerText = document.getElementById('goal-scorer-text');
+        const gameoverOverlay = document.getElementById('gameover-overlay');
+
+        // 입력 상태
+        const keys = {
+            up: false,
+            down: false,
+            left: false,
+            right: false,
+            sprint: false,
+            kick: false
+        };
+
+        // 액티브 스킬 시스템 상태
+        const skills = {
+            cannon: {
+                cooldown: 0,
+                maxCooldown: 6.5,
+                activeTimer: 0
+            },
+            dash: {
+                cooldown: 0,
+                maxCooldown: 4.5,
+                activeTimer: 0,
+                afterimages: []
+            },
+            magnet: {
+                cooldown: 0,
+                maxCooldown: 7.5,
+                waveRadius: 0,
+                waveAlpha: 0
+            }
+        };
+
+        // 게임 전체 상태 객체
+        const gameState = {
+            phase: 'START',
+            difficulty: 'easy',
+            duration: 90,
+            timeLeft: 90,
+            scorePlayer: 0,
+            scoreCpu: 0,
+            goalTimer: 0,
+            shakeTime: 0,
+            shakeIntensity: 0,
+            hitStopTimer: 0, // 필살기 명중 시 짜릿한 역경직(슬로모션)
+            leftNetWave: 0,
+            rightNetWave: 0,
+            stats: {
+                shotsPlayer: 0,
+                shotsCpu: 0,
+                sotPlayer: 0,
+                sotCpu: 0,
+                skillsUsed: 0,
+                possFramesPlayer: 0,
+                possFramesCpu: 0
+            }
+        };
+
+        // ============================================================================
+        // 3. 게임 엔티티 (공, 선수, 파티클, 플로팅 텍스트)
+        // ============================================================================
+        const ball = {
+            x: WORLD_W / 2,
+            y: WORLD_H / 2,
+            vx: 0,
+            vy: 0,
+            spin: 0,
+            radius: 14,
+            rotation: 0,
+            trail: [],
+            isCannonShot: false, // 파워 캐논 슛 불꽃 상태
+            lastTouchedBy: null
+        };
+
+        function createPlayer({ id, team, role, x, y, color, number }) {
+            return {
+                id,
+                team,
+                role,
+                x,
+                y,
+                homeX: x,
+                homeY: y,
+                vx: 0,
+                vy: 0,
+                radius: 22,
+                color,
+                number,
+                facingAngle: team === 'player' ? 0 : Math.PI,
+                stamina: 100,
+                chargeTime: 0,
+                isCharging: false,
+                kickCooldown: 0,
+                stunTimer: 0 // 기절(스틸 스킬 피격 시) 타이머
+            };
+        }
+
+        let players = [];
+        let userStriker = null;
+        let userKeeper = null;
+        let cpuStriker = null;
+        let cpuKeeper = null;
+
+        let particles = [];
+        let floatingTexts = [];
+
+        function spawnParticles(x, y, color, count = 12, speedScale = 1) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = (60 + Math.random() * 190) * speedScale;
+                particles.push({
+                    x,
+                    y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: 2.5 + Math.random() * 4,
+                    color,
+                    alpha: 1,
+                    life: 0.35 + Math.random() * 0.35,
+                    maxLife: 0.7
+                });
+            }
+        }
+
+        function spawnFloatingText(x, y, text, color = '#fbbf24') {
+            floatingTexts.push({
+                x,
+                y,
+                text,
+                color,
+                life: 1.05,
+                vy: -52
+            });
+        }
+
+        function triggerShake(duration = 0.35, intensity = 10) {
+            gameState.shakeTime = duration;
+            gameState.shakeIntensity = intensity;
+        }
+
+        // ============================================================================
+        // 4. 경기 초기화 및 포지션 리셋
+        // ============================================================================
+        function initEntities() {
+            players = [
+                createPlayer({
+                    id: 'p_striker',
+                    team: 'player',
+                    role: 'striker',
+                    x: WORLD_W * 0.34,
+                    y: WORLD_H * 0.5,
+                    color: '#2563eb',
+                    number: 10
+                }),
+                createPlayer({
+                    id: 'p_keeper',
+                    team: 'player',
+                    role: 'keeper',
+                    x: FIELD_LEFT + 38,
+                    y: WORLD_H * 0.5,
+                    color: '#0284c7',
+                    number: 1
+                }),
+                createPlayer({
+                    id: 'c_striker',
+                    team: 'cpu',
+                    role: 'striker',
+                    x: WORLD_W * 0.66,
+                    y: WORLD_H * 0.5,
+                    color: '#e11d48',
+                    number: 9
+                }),
+                createPlayer({
+                    id: 'c_keeper',
+                    team: 'cpu',
+                    role: 'keeper',
+                    x: FIELD_RIGHT - 38,
+                    y: WORLD_H * 0.5,
+                    color: '#be123c',
+                    number: 1
+                })
+            ];
+
+            userStriker = players[0];
+            userKeeper = players[1];
+            cpuStriker = players[2];
+            cpuKeeper = players[3];
+        }
+
+        function resetPositionsForKickoff(kickoffTeam = 'player') {
+            ball.x = WORLD_W / 2;
+            ball.y = WORLD_H / 2;
+            ball.vx = 0;
+            ball.vy = 0;
+            ball.spin = 0;
+            ball.trail = [];
+            ball.isCannonShot = false;
+
+            players.forEach(p => {
+                p.x = p.homeX;
+                p.y = p.homeY;
+                p.vx = 0;
+                p.vy = 0;
+                p.chargeTime = 0;
+                p.isCharging = false;
+                p.kickCooldown = 0;
+                p.stunTimer = 0;
+            });
+
+            if (kickoffTeam === 'player') {
+                userStriker.x = WORLD_W / 2 - 48;
+                cpuStriker.x = WORLD_W * 0.70;
+            } else {
+                cpuStriker.x = WORLD_W / 2 + 55;
+                userStriker.x = WORLD_W * 0.32;
+            }
+        }
+
+        function resetSkills() {
+            skills.cannon.cooldown = 0;
+            skills.cannon.activeTimer = 0;
+            skills.dash.cooldown = 0;
+            skills.dash.activeTimer = 0;
+            skills.dash.afterimages = [];
+            skills.magnet.cooldown = 0;
+            skills.magnet.waveRadius = 0;
+            skills.magnet.waveAlpha = 0;
+            updateSkillHUD();
+        }
+
+        function startNewMatch() {
+            sound.init();
+            gameState.difficulty = document.getElementById('select-difficulty').value;
+            gameState.duration = parseInt(document.getElementById('select-duration').value, 10);
+            gameState.timeLeft = gameState.duration;
+            gameState.scorePlayer = 0;
+            gameState.scoreCpu = 0;
+            gameState.phase = 'PLAYING';
+            gameState.goalTimer = 0;
+            gameState.hitStopTimer = 0;
+            gameState.leftNetWave = 0;
+            gameState.rightNetWave = 0;
+
+            gameState.stats = {
+                shotsPlayer: 0,
+                shotsCpu: 0,
+                sotPlayer: 0,
+                sotCpu: 0,
+                skillsUsed: 0,
+                possFramesPlayer: 0,
+                possFramesCpu: 0
+            };
+
+            particles = [];
+            floatingTexts = [];
+
+            initEntities();
+            resetSkills();
+            resetPositionsForKickoff('player');
+            updateScoreboardUI();
+
+            startOverlay.classList.add('hidden');
+            gameoverOverlay.classList.add('hidden');
+            goalOverlay.classList.add('hidden');
+
+            statusBadgeEl.textContent = '경기 진행 중 · 스킬 사용 가능!';
+            statusBadgeEl.className = 'text-[11px] sm:text-xs font-semibold text-emerald-400 mt-0.5';
+
+            sound.playWhistle(false);
+            spawnFloatingText(WORLD_W / 2, WORLD_H / 2 - 60, 'KICK OFF!', '#34d399');
+        }
+
+        // ============================================================================
+        // 5. 액티브 스킬 3종 발동 로직 (Q/1, E/2, R/3)
+        // ============================================================================
+
+        // 상대 골문의 빈 구석 좌표 계산 (스마트 오토 에임용)
+        function getSmartGoalTarget() {
+            // 상대 골키퍼가 위쪽에 있으면 아래쪽 구석을, 아래쪽에 있으면 위쪽 구석을 노림
+            const keeperOffset = cpuKeeper.y - WORLD_H / 2;
+            const aimY = keeperOffset > 10
+                ? GOAL_TOP + 34
+                : keeperOffset < -10
+                    ? GOAL_BOTTOM - 34
+                    : WORLD_H / 2 + (Math.random() > 0.5 ? -45 : 45);
+            return { x: FIELD_RIGHT, y: aimY };
+        }
+
+        // [스킬 1] 🔥 파워 캐논 슛 (Q / 1)
+        function triggerSkillCannon() {
+            if (gameState.phase !== 'PLAYING') return;
+            if (skills.cannon.cooldown > 0) return;
+
+            const distToBall = Math.hypot(ball.x - userStriker.x, ball.y - userStriker.y);
+            // 공이 너무 멀리(260px 초과) 있으면 발동 불가 안내
+            if (distToBall > 260) {
+                spawnFloatingText(userStriker.x, userStriker.y - 32, '공에 조금 더 가까이!', '#fb923c');
+                return;
+            }
+
+            skills.cannon.cooldown = skills.cannon.maxCooldown;
+            gameState.stats.skillsUsed++;
+
+            // 공이 약간 떨어져 있어도 즉시 발밑으로 끌어당긴 뒤 발사!
+            const frontX = userStriker.x + Math.cos(userStriker.facingAngle) * (userStriker.radius + ball.radius + 4);
+            const frontY = userStriker.y + Math.sin(userStriker.facingAngle) * (userStriker.radius + ball.radius + 4);
+            ball.x = frontX;
+            ball.y = frontY;
+
+            // 상대 골문 빈 구석을 정밀 조준
+            const target = getSmartGoalTarget();
+            const angle = Math.atan2(target.y - ball.y, target.x - ball.x);
+            const cannonSpeed = 1280;
+
+            ball.vx = Math.cos(angle) * cannonSpeed;
+            ball.vy = Math.sin(angle) * cannonSpeed;
+            ball.spin = 0;
+            ball.isCannonShot = true;
+            ball.lastTouchedBy = 'player';
+            userStriker.facingAngle = angle;
+            userStriker.kickCooldown = 0.3;
+
+            gameState.stats.shotsPlayer++;
+            gameState.stats.sotPlayer++;
+
+            // 타격감 연출 (짧은 역경직 + 화면 흔들림 + 불꽃 파티클)
+            gameState.hitStopTimer = 0.055;
+            triggerShake(0.32, 12);
+            sound.playCannonBoom();
+            spawnParticles(ball.x, ball.y, '#f97316', 28, 1.6);
+            spawnParticles(ball.x, ball.y, '#fde047', 18, 1.3);
+            spawnFloatingText(userStriker.x, userStriker.y - 38, '🔥 POWER CANNON!!', '#fb923c');
+            updateSkillHUD();
+        }
+
+        // [스킬 2] ⚡ 팬텀 대시 (E / 2)
+        function triggerSkillDash() {
+            if (gameState.phase !== 'PLAYING') return;
+            if (skills.dash.cooldown > 0) return;
+
+            skills.dash.cooldown = skills.dash.maxCooldown;
+            skills.dash.activeTimer = 0.26;
+            gameState.stats.skillsUsed++;
+
+            // 현재 입력 방향 또는 바라보는 방향으로 폭발적 가속
+            let dirX = 0;
+            let dirY = 0;
+            if (keys.up) dirY -= 1;
+            if (keys.down) dirY += 1;
+            if (keys.left) dirX -= 1;
+            if (keys.right) dirX += 1;
+
+            if (dirX === 0 && dirY === 0) {
+                dirX = Math.cos(userStriker.facingAngle);
+                dirY = Math.sin(userStriker.facingAngle);
+            } else {
+                const len = Math.hypot(dirX, dirY);
+                dirX /= len;
+                dirY /= len;
+                userStriker.facingAngle = Math.atan2(dirY, dirX);
+            }
+
+            userStriker.vx = dirX * 920;
+            userStriker.vy = dirY * 920;
+            userStriker.stamina = Math.min(100, userStriker.stamina + 30);
+
+            // 대시 시작 시 공이 근처에 있으면 발 앞에 착 붙여 함께 돌파
+            const distToBall = Math.hypot(ball.x - userStriker.x, ball.y - userStriker.y);
+            if (distToBall < 95) {
+                ball.x = userStriker.x + dirX * (userStriker.radius + ball.radius + 3);
+                ball.y = userStriker.y + dirY * (userStriker.radius + ball.radius + 3);
+                ball.vx = userStriker.vx;
+                ball.vy = userStriker.vy;
+                ball.lastTouchedBy = 'player';
+            }
+
+            sound.playDashWhoosh();
+            spawnParticles(userStriker.x, userStriker.y, '#22d3ee', 20, 1.2);
+            spawnFloatingText(userStriker.x, userStriker.y - 36, '⚡ PHANTOM DASH!', '#22d3ee');
+            updateSkillHUD();
+        }
+
+        // [스킬 3] 🧲 중력 스틸 (R / 3)
+        function triggerSkillMagnet() {
+            if (gameState.phase !== 'PLAYING') return;
+            if (skills.magnet.cooldown > 0) return;
+
+            skills.magnet.cooldown = skills.magnet.maxCooldown;
+            skills.magnet.waveRadius = 25;
+            skills.magnet.waveAlpha = 1.0;
+            gameState.stats.skillsUsed++;
+
+            const magnetRange = 360;
+            const distToBall = Math.hypot(ball.x - userStriker.x, ball.y - userStriker.y);
+
+            // 범위 내 공을 플레이어 발 앞으로 즉시 끌어당김
+            if (distToBall <= magnetRange) {
+                const pullX = userStriker.x + Math.cos(userStriker.facingAngle) * (userStriker.radius + ball.radius + 4);
+                const pullY = userStriker.y + Math.sin(userStriker.facingAngle) * (userStriker.radius + ball.radius + 4);
+                spawnParticles(ball.x, ball.y, '#c084fc', 18, 1.1);
+                ball.x = pullX;
+                ball.y = pullY;
+                ball.vx = userStriker.vx * 0.8;
+                ball.vy = userStriker.vy * 0.8;
+                ball.isCannonShot = false;
+                ball.lastTouchedBy = 'player';
+            }
+
+            // 범위 내 상대 선수 기절(1.6초) 및 넉백
+            players.forEach(p => {
+                if (p.team === 'cpu') {
+                    const d = Math.hypot(p.x - userStriker.x, p.y - userStriker.y);
+                    if (d <= magnetRange) {
+                        p.stunTimer = 1.6;
+                        const pushAngle = Math.atan2(p.y - userStriker.y, p.x - userStriker.x);
+                        p.vx = Math.cos(pushAngle) * 320;
+                        p.vy = Math.sin(pushAngle) * 320;
+                        spawnFloatingText(p.x, p.y - 30, 'STUN! 💫', '#e879f9');
+                    }
+                }
+            });
+
+            sound.playMagnetZap();
+            triggerShake(0.2, 7);
+            spawnParticles(userStriker.x, userStriker.y, '#a855f7', 24, 1.3);
+            spawnFloatingText(userStriker.x, userStriker.y - 38, '🧲 GRAVITY STEAL!', '#d8b4fe');
+            updateSkillHUD();
+        }
+
+        // 스킬 쿨타임 UI 갱신
+        function updateSkillHUD() {
+            const list = [
+                { key: 'cannon', cdEl: 'cd-skill-cannon', txtEl: 'txt-skill-cannon', btnEl: 'btn-skill-cannon' },
+                { key: 'dash', cdEl: 'cd-skill-dash', txtEl: 'txt-skill-dash', btnEl: 'btn-skill-dash' },
+                { key: 'magnet', cdEl: 'cd-skill-magnet', txtEl: 'txt-skill-magnet', btnEl: 'btn-skill-magnet' }
+            ];
+
+            list.forEach(item => {
+                const s = skills[item.key];
+                const cdOverlay = document.getElementById(item.cdEl);
+                const txt = document.getElementById(item.txtEl);
+                const btn = document.getElementById(item.btnEl);
+
+                if (s.cooldown > 0) {
+                    const pct = Math.min(100, (s.cooldown / s.maxCooldown) * 100);
+                    cdOverlay.style.height = `${pct}%`;
+                    txt.textContent = `${s.cooldown.toFixed(1)}s`;
+                    btn.classList.remove('ready-glow');
+                } else {
+                    cdOverlay.style.height = '0%';
+                    txt.textContent = 'READY';
+                    btn.classList.add('ready-glow');
+                }
+            });
+        }
+
+        // ============================================================================
+        // 6. 일반 슛/패스 (스마트 골문 오토 에임 적용)
+        // ============================================================================
+        function performKick(player, powerRatio) {
+            const dx = ball.x - player.x;
+            const dy = ball.y - player.y;
+            const dist = Math.hypot(dx, dy);
+            // 킥 판정 거리를 넉넉하게 확장 (+28px)
+            const reach = player.radius + ball.radius + 28;
+
+            if (dist > reach) return false;
+
+            let dirX = dist > 0.01 ? dx / dist : Math.cos(player.facingAngle);
+            let dirY = dist > 0.01 ? dy / dist : Math.sin(player.facingAngle);
+
+            const moveSpeed = Math.hypot(player.vx, player.vy);
+            if (moveSpeed > 35) {
+                const moveDirX = player.vx / moveSpeed;
+                const moveDirY = player.vy / moveSpeed;
+                dirX = dirX * 0.45 + moveDirX * 0.55;
+                dirY = dirY * 0.45 + moveDirY * 0.55;
+                const norm = Math.hypot(dirX, dirY) || 1;
+                dirX /= norm;
+                dirY /= norm;
+            }
+
+            // 플레이어가 오른쪽(상대 진영)을 보고 찰 때 골문 빈 구석으로 자동 조준 보정!
+            if (player.team === 'player' && dirX > 0.15) {
+                const preset = DIFFICULTY_PRESETS[gameState.difficulty];
+                const target = getSmartGoalTarget();
+                const goalDx = target.x - ball.x;
+                const goalDy = target.y - ball.y;
+                const goalDist = Math.hypot(goalDx, goalDy) || 1;
+                const goalDirX = goalDx / goalDist;
+                const goalDirY = goalDy / goalDist;
+
+                const assist = preset.aimAssistStrength;
+                dirX = dirX * (1 - assist) + goalDirX * assist;
+                dirY = dirY * (1 - assist) + goalDirY * assist;
+                const norm = Math.hypot(dirX, dirY) || 1;
+                dirX /= norm;
+                dirY /= norm;
+            }
+
+            const baseSpeed = 540 + powerRatio * 620;
+            ball.vx = dirX * baseSpeed;
+            ball.vy = dirY * baseSpeed;
+            ball.isCannonShot = false;
+
+            const cross = dirX * player.vy - dirY * player.vx;
+            ball.spin = Math.max(-2.2, Math.min(2.2, cross * 0.005 * (0.4 + powerRatio)));
+
+            ball.lastTouchedBy = player.team;
+            player.kickCooldown = 0.2;
+
+            if (player.team === 'player' && dirX > 0.2) {
+                gameState.stats.shotsPlayer++;
+                const timeToGoal = (FIELD_RIGHT - ball.x) / Math.max(100, ball.vx);
+                const predictedY = ball.y + ball.vy * timeToGoal;
+                if (predictedY >= GOAL_TOP - 25 && predictedY <= GOAL_BOTTOM + 25) {
+                    gameState.stats.sotPlayer++;
+                }
+            } else if (player.team === 'cpu' && dirX < -0.2) {
+                gameState.stats.shotsCpu++;
+                const timeToGoal = (ball.x - FIELD_LEFT) / Math.max(100, -ball.vx);
+                const predictedY = ball.y + ball.vy * timeToGoal;
+                if (predictedY >= GOAL_TOP - 25 && predictedY <= GOAL_BOTTOM + 25) {
+                    gameState.stats.sotCpu++;
+                }
+            }
+
+            sound.playKick(powerRatio);
+            if (powerRatio >= 0.68) {
+                spawnParticles(ball.x, ball.y, '#fbbf24', 18, 1.3);
+                spawnFloatingText(ball.x, ball.y - 24, 'POWER SHOT! 🔥', '#fbbf24');
+                triggerShake(0.16, 5);
+            } else {
+                spawnParticles(ball.x, ball.y, '#ffffff', 8, 0.8);
+            }
+
+            return true;
+        }
+
+        // ============================================================================
+        // 7. 물리 엔진 & 스마트 AI 업데이트
+        // ============================================================================
+        function update(dt) {
+            // 역경직(Hit-stop) 연출 중이면 짧은 순간 정지감 부여
+            if (gameState.hitStopTimer > 0) {
+                gameState.hitStopTimer = Math.max(0, gameState.hitStopTimer - dt);
+                return;
+            }
+
+            gameState.leftNetWave *= Math.pow(0.05, dt);
+            gameState.rightNetWave *= Math.pow(0.05, dt);
+
+            if (gameState.shakeTime > 0) {
+                gameState.shakeTime = Math.max(0, gameState.shakeTime - dt);
+            }
+
+            // 스킬 쿨타임 및 이펙트 갱신
+            if (gameState.phase === 'PLAYING') {
+                if (skills.cannon.cooldown > 0) skills.cannon.cooldown = Math.max(0, skills.cannon.cooldown - dt);
+                if (skills.dash.cooldown > 0) skills.dash.cooldown = Math.max(0, skills.dash.cooldown - dt);
+                if (skills.magnet.cooldown > 0) skills.magnet.cooldown = Math.max(0, skills.magnet.cooldown - dt);
+                updateSkillHUD();
+            }
+
+            // 대시 활성 및 잔상 업데이트
+            if (skills.dash.activeTimer > 0) {
+                skills.dash.activeTimer = Math.max(0, skills.dash.activeTimer - dt);
+                skills.dash.afterimages.push({
+                    x: userStriker.x,
+                    y: userStriker.y,
+                    alpha: 0.65
+                });
+            }
+            for (let i = skills.dash.afterimages.length - 1; i >= 0; i--) {
+                skills.dash.afterimages[i].alpha -= dt * 2.8;
+                if (skills.dash.afterimages[i].alpha <= 0) {
+                    skills.dash.afterimages.splice(i, 1);
+                }
+            }
+
+            // 중력 스틸 충격파 애니메이션
+            if (skills.magnet.waveAlpha > 0) {
+                skills.magnet.waveRadius += 950 * dt;
+                skills.magnet.waveAlpha = Math.max(0, skills.magnet.waveAlpha - dt * 2.4);
+            }
+
+            // 파티클 업데이트
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const pt = particles[i];
+                pt.x += pt.vx * dt;
+                pt.y += pt.vy * dt;
+                pt.vx *= 0.94;
+                pt.vy *= 0.94;
+                pt.life -= dt;
+                pt.alpha = Math.max(0, pt.life / pt.maxLife);
+                if (pt.life <= 0) particles.splice(i, 1);
+            }
+
+            // 플로팅 텍스트 업데이트
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const ft = floatingTexts[i];
+                ft.y += ft.vy * dt;
+                ft.life -= dt;
+                if (ft.life <= 0) floatingTexts.splice(i, 1);
+            }
+
+            // 골 세리머니 처리
+            if (gameState.phase === 'GOAL_CELEBRATION') {
+                updateBallPhysics(dt, true);
+                gameState.goalTimer -= dt;
+                if (gameState.goalTimer <= 0) {
+                    goalOverlay.classList.add('hidden');
+                    gameState.phase = 'PLAYING';
+                    statusBadgeEl.textContent = '경기 진행 중 · 스킬 사용 가능!';
+                    resetPositionsForKickoff(ball.lastTouchedBy === 'player' ? 'cpu' : 'player');
+                    sound.playWhistle(false);
+                }
+                return;
+            }
+
+            if (gameState.phase !== 'PLAYING') return;
+
+            gameState.timeLeft -= dt;
+            if (gameState.timeLeft <= 0) {
+                gameState.timeLeft = 0;
+                finishMatch();
+                return;
+            }
+            timerEl.textContent = Math.ceil(gameState.timeLeft);
+
+            // 1) 플레이어 입력 및 드리블 자석 보정
+            updateUserPlayer(dt);
+
+            // 2) 골키퍼 & 상대 스트라이커 AI
+            const preset = DIFFICULTY_PRESETS[gameState.difficulty];
+            updateGoalkeeperAI(userKeeper, 'player', preset, dt);
+            updateGoalkeeperAI(cpuKeeper, 'cpu', preset, dt);
+            updateCpuStrikerAI(cpuStriker, preset, dt);
+
+            // 3) 선수 이동 및 경계 처리
+            players.forEach(p => {
+                if (p.kickCooldown > 0) p.kickCooldown = Math.max(0, p.kickCooldown - dt);
+                if (p.stunTimer > 0) {
+                    p.stunTimer = Math.max(0, p.stunTimer - dt);
+                    p.vx *= 0.9;
+                    p.vy *= 0.9;
+                }
+
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+
+                const minX = FIELD_LEFT - 15;
+                const maxX = FIELD_RIGHT + 15;
+                const minY = FIELD_TOP + p.radius;
+                const maxY = FIELD_BOTTOM - p.radius;
+
+                p.x = Math.max(minX, Math.min(maxX, p.x));
+                p.y = Math.max(minY, Math.min(maxY, p.y));
+            });
+
+            resolvePlayerCollisions();
+            updateBallPhysics(dt, false);
+
+            // 점유율 통계
+            const distP = Math.hypot(userStriker.x - ball.x, userStriker.y - ball.y);
+            const distC = Math.hypot(cpuStriker.x - ball.x, cpuStriker.y - ball.y);
+            if (distP < distC) {
+                gameState.stats.possFramesPlayer++;
+            } else {
+                gameState.stats.possFramesCpu++;
+            }
+        }
+
+        function updateUserPlayer(dt) {
+            // 팬텀 대시 중에는 대시 속도를 유지하며 공을 발 앞에 고정
+            if (skills.dash.activeTimer > 0) {
+                const dirX = Math.cos(userStriker.facingAngle);
+                const dirY = Math.sin(userStriker.facingAngle);
+                const distToBall = Math.hypot(ball.x - userStriker.x, ball.y - userStriker.y);
+                if (distToBall < 90) {
+                    ball.x = userStriker.x + dirX * (userStriker.radius + ball.radius + 3);
+                    ball.y = userStriker.y + dirY * (userStriker.radius + ball.radius + 3);
+                    ball.vx = userStriker.vx * 0.95;
+                    ball.vy = userStriker.vy * 0.95;
+                    ball.lastTouchedBy = 'player';
+                }
+                return;
+            }
+
+            let inputX = 0;
+            let inputY = 0;
+            if (keys.up) inputY -= 1;
+            if (keys.down) inputY += 1;
+            if (keys.left) inputX -= 1;
+            if (keys.right) inputX += 1;
+
+            const isMoving = inputX !== 0 || inputY !== 0;
+            if (isMoving) {
+                const len = Math.hypot(inputX, inputY);
+                inputX /= len;
+                inputY /= len;
+                userStriker.facingAngle = Math.atan2(inputY, inputX);
+            }
+
+            // 기본 이동 속도를 쾌적하게 상향 & 스태미나 회복 속도 증가
+            let speed = 350;
+            if (keys.sprint && isMoving && userStriker.stamina > 2) {
+                speed = 500;
+                userStriker.stamina = Math.max(0, userStriker.stamina - 24 * dt);
+                if (Math.random() < 0.35) {
+                    spawnParticles(userStriker.x, userStriker.y + 12, '#38bdf8', 1, 0.4);
+                }
+            } else {
+                userStriker.stamina = Math.min(100, userStriker.stamina + 38 * dt);
+            }
+
+            if (userStriker.isCharging) {
+                speed *= 0.92;
+                userStriker.chargeTime = Math.min(0.65, userStriker.chargeTime + dt);
+            }
+
+            const targetVx = inputX * speed;
+            const targetVy = inputY * speed;
+            const accel = 18 * dt;
+            userStriker.vx += (targetVx - userStriker.vx) * Math.min(1, accel);
+            userStriker.vy += (targetVy - userStriker.vy) * Math.min(1, accel);
+
+            // [쉬운 조작 핵심] 부드러운 드리블 자석 어시스트:
+            // 공이 플레이어 바로 근처(68px 이내)에 있고 느리게 굴러갈 때 발 앞으로 자연스럽게 유도
+            const distToBall = Math.hypot(ball.x - userStriker.x, ball.y - userStriker.y);
+            const ballSpeed = Math.hypot(ball.vx, ball.vy);
+            if (isMoving && distToBall < 68 && ballSpeed < 460 && userStriker.kickCooldown <= 0) {
+                const idealX = userStriker.x + Math.cos(userStriker.facingAngle) * (userStriker.radius + ball.radius + 2);
+                const idealY = userStriker.y + Math.sin(userStriker.facingAngle) * (userStriker.radius + ball.radius + 2);
+                ball.x += (idealX - ball.x) * Math.min(1, 11 * dt);
+                ball.y += (idealY - ball.y) * Math.min(1, 11 * dt);
+                ball.vx = userStriker.vx * 1.03;
+                ball.vy = userStriker.vy * 1.03;
+                ball.lastTouchedBy = 'player';
+            }
+
+            staminaBarEl.style.width = `${userStriker.stamina}%`;
+            const powerPct = userStriker.isCharging ? Math.min(100, (userStriker.chargeTime / 0.65) * 100) : 0;
+            powerBarEl.style.width = `${powerPct}%`;
+        }
+
+        function updateGoalkeeperAI(keeper, team, preset, dt) {
+            if (keeper.stunTimer > 0) return;
+
+            const isLeftGoal = team === 'player';
+            const goalX = isLeftGoal ? FIELD_LEFT + 34 : FIELD_RIGHT - 34;
+
+            const clampMargin = 18;
+            let targetY = Math.max(GOAL_TOP + clampMargin, Math.min(GOAL_BOTTOM - clampMargin, ball.y));
+            let targetX = goalX;
+
+            const distToGoal = isLeftGoal ? (ball.x - FIELD_LEFT) : (FIELD_RIGHT - ball.x);
+            if (distToGoal < 180 && Math.abs(ball.y - WORLD_H / 2) < 150) {
+                targetX = isLeftGoal ? FIELD_LEFT + 62 : FIELD_RIGHT - 62;
+            }
+
+            const dx = targetX - keeper.x;
+            const dy = targetY - keeper.y;
+            const dist = Math.hypot(dx, dy);
+
+            const maxSpeed = isLeftGoal ? 275 : preset.aiKeeperSpeed;
+            if (dist > 4) {
+                keeper.vx = (dx / dist) * Math.min(maxSpeed, dist * 6.5);
+                keeper.vy = (dy / dist) * Math.min(maxSpeed, dist * 6.5);
+            } else {
+                keeper.vx *= 0.7;
+                keeper.vy *= 0.7;
+            }
+
+            // 공 접촉 시 세이브 처리 (단, 플레이어의 파워 캐논 슛은 상대 골키퍼를 뚫고 날아감!)
+            const ballDist = Math.hypot(ball.x - keeper.x, ball.y - keeper.y);
+            if (ballDist < keeper.radius + ball.radius + 14 && keeper.kickCooldown <= 0) {
+                if (!isLeftGoal && ball.isCannonShot) {
+                    // 캐논 슛은 상대 키퍼를 밀쳐내며 돌파!
+                    keeper.stunTimer = 0.8;
+                    keeper.vx = 280;
+                    spawnParticles(keeper.x, keeper.y, '#fb923c', 16, 1.2);
+                    spawnFloatingText(keeper.x, keeper.y - 28, 'BREAK THROUGH! 💥', '#fb923c');
+                    return;
+                }
+
+                const clearDirX = isLeftGoal ? 1 : -1;
+                const clearDirY = (Math.random() - 0.5) * 0.7;
+                const norm = Math.hypot(clearDirX, clearDirY);
+                ball.vx = (clearDirX / norm) * 650;
+                ball.vy = (clearDirY / norm) * 650;
+                ball.spin = 0;
+                ball.isCannonShot = false;
+                ball.lastTouchedBy = team;
+                keeper.kickCooldown = 0.45;
+
+                sound.playKick(0.6);
+                spawnParticles(ball.x, ball.y, '#38bdf8', 12, 1.0);
+                spawnFloatingText(keeper.x, keeper.y - 28, 'SAVE! 🧤', '#38bdf8');
+            }
+        }
+
+        function updateCpuStrikerAI(ai, preset, dt) {
+            if (ai.stunTimer > 0) return;
+
+            const targetGoalX = FIELD_LEFT;
+            const targetGoalY = WORLD_H / 2 + Math.sin(performance.now() * 0.002) * (GOAL_WIDTH * 0.3 * preset.aiShootAccuracy);
+
+            const toGoalX = targetGoalX - ball.x;
+            const toGoalY = targetGoalY - ball.y;
+            const toGoalDist = Math.hypot(toGoalX, toGoalY) || 1;
+            const normGoalX = toGoalX / toGoalDist;
+            const normGoalY = toGoalY / toGoalDist;
+
+            let destX = ball.x - normGoalX * 26;
+            let destY = ball.y - normGoalY * 26;
+
+            if (ball.x > ai.x + 15) {
+                destX = ball.x + 12;
+                destY = ball.y + (ball.y > WORLD_H / 2 ? -24 : 24);
+            }
+
+            const dx = destX - ai.x;
+            const dy = destY - ai.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist > 5) {
+                const speed = preset.aiSpeed * preset.aiReaction;
+                ai.vx += ((dx / dist) * speed - ai.vx) * Math.min(1, 9 * dt);
+                ai.vy += ((dy / dist) * speed - ai.vy) * Math.min(1, 9 * dt);
+                ai.facingAngle = Math.atan2(ai.vy, ai.vx);
+            } else {
+                ai.vx *= 0.85;
+                ai.vy *= 0.85;
+            }
+
+            const ballDist = Math.hypot(ball.x - ai.x, ball.y - ai.y);
+            if (ballDist < ai.radius + ball.radius + 14 && ai.kickCooldown <= 0 && !ball.isCannonShot) {
+                if (ball.x < WORLD_W * 0.54 || Math.random() < 0.06) {
+                    const shootAngle = Math.atan2(targetGoalY - ball.y, targetGoalX - ball.x);
+                    const power = preset.aiKickPower * (0.85 + Math.random() * 0.2);
+                    ball.vx = Math.cos(shootAngle) * power;
+                    ball.vy = Math.sin(shootAngle) * power;
+                    ball.spin = (Math.random() - 0.5) * 1.2;
+                    ball.lastTouchedBy = 'cpu';
+                    ai.kickCooldown = 0.5;
+
+                    gameState.stats.shotsCpu++;
+                    if (Math.abs(targetGoalY - WORLD_H / 2) <= GOAL_WIDTH / 2) {
+                        gameState.stats.sotCpu++;
+                    }
+
+                    sound.playKick(0.7);
+                    spawnParticles(ball.x, ball.y, '#fb7185', 10, 0.9);
+                }
+            }
+        }
+
+        function resolvePlayerCollisions() {
+            for (let i = 0; i < players.length; i++) {
+                for (let j = i + 1; j < players.length; j++) {
+                    const a = players[i];
+                    const b = players[j];
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = a.radius + b.radius;
+
+                    if (dist > 0 && dist < minDist) {
+                        const overlap = (minDist - dist) * 0.5;
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+
+                        // 팬텀 대시 중이면 상대 선수를 강하게 밀쳐냄!
+                        if (a.id === 'p_striker' && skills.dash.activeTimer > 0 && b.team === 'cpu') {
+                            b.x += nx * overlap * 3;
+                            b.y += ny * overlap * 3;
+                            b.vx = nx * 520;
+                            b.vy = ny * 520;
+                            b.stunTimer = 0.7;
+                            spawnParticles(b.x, b.y, '#22d3ee', 14, 1.1);
+                            continue;
+                        }
+
+                        a.x -= nx * overlap;
+                        a.y -= ny * overlap;
+                        b.x += nx * overlap;
+                        b.y += ny * overlap;
+                    }
+                }
+            }
+        }
+
+        function updateBallPhysics(dt, inGoalNetOnly) {
+            const speed = Math.hypot(ball.vx, ball.vy);
+
+            // 파워 캐논 슛 불꽃 파티클 궤적 생성
+            if (ball.isCannonShot && speed > 450) {
+                spawnParticles(ball.x, ball.y, Math.random() > 0.4 ? '#f97316' : '#fde047', 2, 0.45);
+            }
+
+            if (speed > 240) {
+                ball.trail.push({
+                    x: ball.x,
+                    y: ball.y,
+                    isFire: ball.isCannonShot
+                });
+                if (ball.trail.length > 14) ball.trail.shift();
+            } else {
+                ball.isCannonShot = false;
+                if (ball.trail.length > 0) ball.trail.shift();
+            }
+
+            if (Math.abs(ball.spin) > 0.01 && speed > 80) {
+                const perpX = -ball.vy / speed;
+                const perpY = ball.vx / speed;
+                ball.vx += perpX * ball.spin * 165 * dt;
+                ball.vy += perpY * ball.spin * 165 * dt;
+                ball.spin *= Math.pow(0.45, dt);
+            }
+
+            ball.x += ball.vx * dt;
+            ball.y += ball.vy * dt;
+            ball.rotation += (speed * dt) / ball.radius;
+
+            const friction = ball.isCannonShot ? Math.pow(0.75, dt) : Math.pow(0.42, dt);
+            ball.vx *= friction;
+            ball.vy *= friction;
+
+            if (speed < 8) {
+                ball.vx = 0;
+                ball.vy = 0;
+            }
+
+            if (inGoalNetOnly) {
+                if (ball.x < FIELD_LEFT) {
+                    ball.x = Math.max(FIELD_LEFT - GOAL_DEPTH + ball.radius, ball.x);
+                    ball.vx *= 0.85;
+                } else if (ball.x > FIELD_RIGHT) {
+                    ball.x = Math.min(FIELD_RIGHT + GOAL_DEPTH - ball.radius, ball.x);
+                    ball.vx *= 0.85;
+                }
+                ball.y = Math.max(GOAL_TOP + ball.radius, Math.min(GOAL_BOTTOM - ball.radius, ball.y));
+                return;
+            }
+
+            players.forEach(p => {
+                if (p.stunTimer > 0) return;
+                const dx = ball.x - p.x;
+                const dy = ball.y - p.y;
+                const dist = Math.hypot(dx, dy);
+                const minDist = p.radius + ball.radius;
+
+                if (dist > 0 && dist < minDist) {
+                    // 캐논 슛이 CPU 스트라이커를 스치면 튕겨내며 돌파
+                    if (ball.isCannonShot && p.team === 'cpu') {
+                        p.stunTimer = 0.6;
+                        return;
+                    }
+
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+                    const overlap = minDist - dist;
+
+                    ball.x += nx * overlap;
+                    ball.y += ny * overlap;
+
+                    const pSpeed = Math.hypot(p.vx, p.vy);
+                    // 플레이어는 공이 너무 멀리 튀지 않도록 부드러운 터치 적용
+                    const pushFactor = p.team === 'player' ? Math.max(155, pSpeed * 1.06) : Math.max(190, pSpeed * 1.15);
+                    ball.vx = nx * pushFactor + p.vx * 0.35;
+                    ball.vy = ny * pushFactor + p.vy * 0.35;
+                    ball.lastTouchedBy = p.team;
+                }
+            });
+
+            const posts = [
+                { x: FIELD_LEFT, y: GOAL_TOP },
+                { x: FIELD_LEFT, y: GOAL_BOTTOM },
+                { x: FIELD_RIGHT, y: GOAL_TOP },
+                { x: FIELD_RIGHT, y: GOAL_BOTTOM }
+            ];
+            const postRadius = 7;
+
+            posts.forEach(post => {
+                const dx = ball.x - post.x;
+                const dy = ball.y - post.y;
+                const dist = Math.hypot(dx, dy);
+                const minDist = ball.radius + postRadius;
+
+                if (dist > 0 && dist < minDist) {
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+                    ball.x = post.x + nx * minDist;
+                    ball.y = post.y + ny * minDist;
+
+                    const dot = ball.vx * nx + ball.vy * ny;
+                    ball.vx = (ball.vx - 2 * dot * nx) * 0.82;
+                    ball.vy = (ball.vy - 2 * dot * ny) * 0.82;
+                    ball.isCannonShot = false;
+
+                    sound.playPostHit();
+                    spawnParticles(post.x, post.y, '#ffffff', 14, 1.1);
+                    spawnFloatingText(post.x, post.y - 20, 'POST! 💥', '#f8fafc');
+                    triggerShake(0.18, 6);
+                }
+            });
+
+            if (ball.y - ball.radius < FIELD_TOP) {
+                ball.y = FIELD_TOP + ball.radius;
+                ball.vy = Math.abs(ball.vy) * 0.82;
+            } else if (ball.y + ball.radius > FIELD_BOTTOM) {
+                ball.y = FIELD_BOTTOM - ball.radius;
+                ball.vy = -Math.abs(ball.vy) * 0.82;
+            }
+
+            const inGoalY = ball.y > GOAL_TOP && ball.y < GOAL_BOTTOM;
+
+            if (ball.x - ball.radius < FIELD_LEFT) {
+                if (inGoalY) {
+                    if (ball.x < FIELD_LEFT - ball.radius * 0.35) {
+                        handleGoalScored('cpu');
+                    }
+                } else {
+                    ball.x = FIELD_LEFT + ball.radius;
+                    ball.vx = Math.abs(ball.vx) * 0.82;
+                }
+            }
+
+            if (ball.x + ball.radius > FIELD_RIGHT) {
+                if (inGoalY) {
+                    if (ball.x > FIELD_RIGHT + ball.radius * 0.35) {
+                        handleGoalScored('player');
+                    }
+                } else {
+                    ball.x = FIELD_RIGHT - ball.radius;
+                    ball.vx = -Math.abs(ball.vx) * 0.82;
+                }
+            }
+        }
+
+        function handleGoalScored(scoringTeam) {
+            if (gameState.phase !== 'PLAYING') return;
+
+            gameState.phase = 'GOAL_CELEBRATION';
+            gameState.goalTimer = 2.3;
+            userStriker.isCharging = false;
+            userStriker.chargeTime = 0;
+
+            if (scoringTeam === 'player') {
+                gameState.scorePlayer++;
+                gameState.rightNetWave = 1.15;
+                goalScorerText.textContent = ball.isCannonShot
+                    ? '🔥 SUPER CANNON GOAL!! 🔵'
+                    : 'PLAYER TEAM SCORES! 🔵';
+                goalBannerBox.className = 'bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 text-slate-950 px-8 py-4 sm:px-12 sm:py-6 rounded-3xl shadow-[0_0_55px_rgba(59,130,246,0.9)] border-4 border-white text-center animate-goal-pop';
+            } else {
+                gameState.scoreCpu++;
+                gameState.leftNetWave = 1.0;
+                goalScorerText.textContent = 'CPU TEAM SCORES! 🔴';
+                goalBannerBox.className = 'bg-gradient-to-r from-rose-600 via-amber-400 to-rose-600 text-slate-950 px-8 py-4 sm:px-12 sm:py-6 rounded-3xl shadow-[0_0_55px_rgba(244,63,94,0.9)] border-4 border-white text-center animate-goal-pop';
+            }
+
+            updateScoreboardUI();
+            goalOverlay.classList.remove('hidden');
+            statusBadgeEl.textContent = 'GOAL!! 킥오프 대기 중';
+            statusBadgeEl.className = 'text-[11px] sm:text-xs font-bold text-amber-400 mt-0.5';
+
+            sound.playGoalCheer();
+            triggerShake(0.45, 14);
+            spawnParticles(ball.x, ball.y, '#fbbf24', 36, 1.6);
+            spawnParticles(ball.x, ball.y, '#ffffff', 24, 1.3);
+        }
+
+        function finishMatch() {
+            gameState.phase = 'GAMEOVER';
+            userStriker.isCharging = false;
+            sound.playWhistle(true);
+
+            statusBadgeEl.textContent = '경기 종료 · FULL TIME';
+            statusBadgeEl.className = 'text-[11px] sm:text-xs font-bold text-slate-400 mt-0.5';
+
+            const pScore = gameState.scorePlayer;
+            const cScore = gameState.scoreCpu;
+
+            document.getElementById('final-score-player').textContent = pScore;
+            document.getElementById('final-score-cpu').textContent = cScore;
+
+            const headline = document.getElementById('result-headline');
+            if (pScore > cScore) {
+                headline.textContent = '승리했습니다! 🏆';
+                headline.className = 'font-arcade text-3xl sm:text-4xl text-amber-400 mt-1 mb-4';
+            } else if (pScore < cScore) {
+                headline.textContent = '아쉬운 패배! 💪';
+                headline.className = 'font-arcade text-3xl sm:text-4xl text-rose-400 mt-1 mb-4';
+            } else {
+                headline.textContent = '치열한 무승부! 🤝';
+                headline.className = 'font-arcade text-3xl sm:text-4xl text-cyan-300 mt-1 mb-4';
+            }
+
+            const totalPoss = (gameState.stats.possFramesPlayer + gameState.stats.possFramesCpu) || 1;
+            const possP = Math.round((gameState.stats.possFramesPlayer / totalPoss) * 100);
+
+            document.getElementById('stat-shots-p').textContent = gameState.stats.shotsPlayer;
+            document.getElementById('stat-shots-c').textContent = gameState.stats.shotsCpu;
+            document.getElementById('stat-sot-p').textContent = gameState.stats.sotPlayer;
+            document.getElementById('stat-sot-c').textContent = gameState.stats.sotCpu;
+            document.getElementById('stat-skills-p').textContent = `${gameState.stats.skillsUsed}회`;
+            document.getElementById('stat-poss-p').textContent = `${possP}%`;
+
+            gameoverOverlay.classList.remove('hidden');
+        }
+
+        function updateScoreboardUI() {
+            scorePlayerEl.textContent = gameState.scorePlayer;
+            scoreCpuEl.textContent = gameState.scoreCpu;
+            timerEl.textContent = Math.ceil(gameState.timeLeft);
+        }
+
+        // ============================================================================
+        // 8. 고품질 2D 캔버스 렌더링 (스킬 이펙트 포함)
+        // ============================================================================
+        function render() {
+            const dpr = window.devicePixelRatio || 1;
+            const rect = pitchWrapper.getBoundingClientRect();
+            if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
+                canvas.width = Math.round(rect.width * dpr);
+                canvas.height = Math.round(rect.height * dpr);
+            }
+
+            ctx.save();
+            const scaleX = canvas.width / WORLD_W;
+            const scaleY = canvas.height / WORLD_H;
+            ctx.scale(scaleX, scaleY);
+
+            if (gameState.shakeTime > 0) {
+                const mag = gameState.shakeIntensity * (gameState.shakeTime / 0.45);
+                const sx = (Math.random() - 0.5) * mag * 2;
+                const sy = (Math.random() - 0.5) * mag * 2;
+                ctx.translate(sx, sy);
+            }
+
+            drawPitch();
+            drawGoalNets();
+            drawSkillEffects();
+            drawBallTrailAndParticles();
+            players.forEach(p => drawPlayer(p));
+            drawBall();
+            drawGoalPosts();
+            drawFloatingTexts();
+
+            ctx.restore();
+        }
+
+        // 스킬 전용 비주얼 이펙트 (중력장 파동, 팬텀 대시 잔상, 캐논 사정거리 링)
+        function drawSkillEffects() {
+            // 1) 중력 스틸 확장 충격파 링
+            if (skills.magnet.waveAlpha > 0) {
+                ctx.save();
+                ctx.strokeStyle = `rgba(192, 132, 252, ${skills.magnet.waveAlpha})`;
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.arc(userStriker.x, userStriker.y, skills.magnet.waveRadius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.fillStyle = `rgba(168, 85, 247, ${skills.magnet.waveAlpha * 0.16})`;
+                ctx.beginPath();
+                ctx.arc(userStriker.x, userStriker.y, skills.magnet.waveRadius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // 2) 팬텀 대시 잔상 실루엣
+            skills.dash.afterimages.forEach(img => {
+                ctx.save();
+                ctx.fillStyle = `rgba(34, 211, 238, ${img.alpha * 0.45})`;
+                ctx.beginPath();
+                ctx.arc(img.x, img.y, userStriker.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        function drawPitch() {
+            ctx.fillStyle = '#114222';
+            ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+            const stripeCount = 12;
+            const stripeW = FIELD_W / stripeCount;
+            for (let i = 0; i < stripeCount; i++) {
+                ctx.fillStyle = i % 2 === 0 ? '#1b6b32' : '#217c3b';
+                ctx.fillRect(FIELD_LEFT + i * stripeW, FIELD_TOP, stripeW + 0.5, FIELD_H);
+            }
+
+            const grad = ctx.createRadialGradient(
+                WORLD_W / 2, WORLD_H / 2, 120,
+                WORLD_W / 2, WORLD_H / 2, WORLD_W * 0.65
+            );
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0.28)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(FIELD_LEFT, FIELD_TOP, FIELD_W, FIELD_H);
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            ctx.strokeRect(FIELD_LEFT, FIELD_TOP, FIELD_W, FIELD_H);
+
+            ctx.beginPath();
+            ctx.moveTo(WORLD_W / 2, FIELD_TOP);
+            ctx.lineTo(WORLD_W / 2, FIELD_BOTTOM);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(WORLD_W / 2, WORLD_H / 2, 92, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath();
+            ctx.arc(WORLD_W / 2, WORLD_H / 2, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            const penW = 165;
+            const penH = 400;
+            const goalAreaW = 62;
+            const goalAreaH = 250;
+
+            ctx.strokeRect(FIELD_LEFT, (WORLD_H - penH) / 2, penW, penH);
+            ctx.strokeRect(FIELD_LEFT, (WORLD_H - goalAreaH) / 2, goalAreaW, goalAreaH);
+            ctx.beginPath();
+            ctx.arc(FIELD_LEFT + 115, WORLD_H / 2, 68, -0.82, 0.82);
+            ctx.stroke();
+
+            ctx.strokeRect(FIELD_RIGHT - penW, (WORLD_H - penH) / 2, penW, penH);
+            ctx.strokeRect(FIELD_RIGHT - goalAreaW, (WORLD_H - goalAreaH) / 2, goalAreaW, goalAreaH);
+            ctx.beginPath();
+            ctx.arc(FIELD_RIGHT - 115, WORLD_H / 2, 68, Math.PI - 0.82, Math.PI + 0.82);
+            ctx.stroke();
+
+            const cornerR = 18;
+            ctx.beginPath(); ctx.arc(FIELD_LEFT, FIELD_TOP, cornerR, 0, Math.PI / 2); ctx.stroke();
+            ctx.beginPath(); ctx.arc(FIELD_RIGHT, FIELD_TOP, cornerR, Math.PI / 2, Math.PI); ctx.stroke();
+            ctx.beginPath(); ctx.arc(FIELD_RIGHT, FIELD_BOTTOM, cornerR, Math.PI, Math.PI * 1.5); ctx.stroke();
+            ctx.beginPath(); ctx.arc(FIELD_LEFT, FIELD_BOTTOM, cornerR, Math.PI * 1.5, Math.PI * 2); ctx.stroke();
+        }
+
+        function drawGoalNets() {
+            drawSingleGoalNet(FIELD_LEFT - GOAL_DEPTH, GOAL_TOP, GOAL_DEPTH, GOAL_WIDTH, true, gameState.leftNetWave);
+            drawSingleGoalNet(FIELD_RIGHT, GOAL_TOP, GOAL_DEPTH, GOAL_WIDTH, false, gameState.rightNetWave);
+        }
+
+        function drawSingleGoalNet(x, y, w, h, isLeft, wave) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+            ctx.fillRect(x, y, w, h);
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 1.5;
+
+            const step = 14;
+            for (let gy = y; gy <= y + h; gy += step) {
+                ctx.beginPath();
+                ctx.moveTo(x, gy);
+                const midX = x + w / 2 + (isLeft ? -wave * 18 : wave * 18);
+                ctx.quadraticCurveTo(midX, gy, x + w, gy);
+                ctx.stroke();
+            }
+            for (let gx = x; gx <= x + w; gx += step) {
+                ctx.beginPath();
+                ctx.moveTo(gx, y);
+                const bend = Math.sin(((gx - x) / w) * Math.PI) * (isLeft ? -wave * 20 : wave * 20);
+                ctx.quadraticCurveTo(gx + bend, y + h / 2, gx, y + h);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(x, y, w, h);
+            ctx.restore();
+        }
+
+        function drawGoalPosts() {
+            const posts = [
+                { x: FIELD_LEFT, y: GOAL_TOP },
+                { x: FIELD_LEFT, y: GOAL_BOTTOM },
+                { x: FIELD_RIGHT, y: GOAL_TOP },
+                { x: FIELD_RIGHT, y: GOAL_BOTTOM }
+            ];
+
+            posts.forEach(p => {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                ctx.beginPath();
+                ctx.arc(p.x + 3, p.y + 4, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 7.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#475569';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+        }
+
+        function drawPlayer(p) {
+            ctx.save();
+
+            // 유저가 조종하는 스트라이커 발밑 인디케이터 링 (작고 반투명하게 시야 방해 최소화)
+            if (p.id === 'p_striker') {
+                ctx.strokeStyle = 'rgba(96, 165, 250, 0.45)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius + 4, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // 질주 중일 때만 발밑에 얇은 시안색 아크 표시
+                if (keys.sprint && p.stamina > 2) {
+                    const stamRatio = Math.max(0, Math.min(1, p.stamina / 100));
+                    ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius + 7, Math.PI * 0.15, Math.PI * 0.15 + Math.PI * 0.7 * stamRatio);
+                    ctx.stroke();
+                }
+
+                // 슛 파워 충전 중일 때만 발밑에 얇은 반투명 원형 아크 게이지 표시
+                if (p.isCharging && p.chargeTime > 0.02) {
+                    const ratio = Math.min(1, p.chargeTime / 0.65);
+                    ctx.strokeStyle = ratio > 0.65 ? 'rgba(245, 158, 11, 0.7)' : 'rgba(52, 211, 153, 0.65)';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius + 7, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+                    ctx.stroke();
+                }
+            }
+
+            // 바닥 그림자
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+            ctx.beginPath();
+            ctx.ellipse(p.x + 3, p.y + 7, p.radius * 0.95, p.radius * 0.75, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 시선 방향 표시
+            const noseX = p.x + Math.cos(p.facingAngle) * (p.radius + 4);
+            const noseY = p.y + Math.sin(p.facingAngle) * (p.radius + 4);
+            ctx.fillStyle = '#f8fafc';
+            ctx.beginPath();
+            ctx.arc(noseX, noseY, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 선수 유니폼 원형 몸체
+            const bodyGrad = ctx.createRadialGradient(p.x - 6, p.y - 6, 4, p.x, p.y, p.radius);
+            if (p.team === 'player') {
+                bodyGrad.addColorStop(0, p.role === 'keeper' ? '#38bdf8' : '#60a5fa');
+                bodyGrad.addColorStop(1, p.role === 'keeper' ? '#0369a1' : '#1d4ed8');
+            } else {
+                bodyGrad.addColorStop(0, p.role === 'keeper' ? '#fb7185' : '#f87171');
+                bodyGrad.addColorStop(1, p.role === 'keeper' ? '#9f1239' : '#b91c1c');
+            }
+
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = p.role === 'keeper' ? '#fde047' : '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // 등번호
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '900 15px "Noto Sans KR", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(p.number, p.x, p.y + 1);
+
+            // 기절 상태 표시 (빙글빙글 별)
+            if (p.stunTimer > 0) {
+                ctx.font = '18px sans-serif';
+                ctx.fillText('💫', p.x, p.y - p.radius - 10);
+            }
+
+            ctx.restore();
+        }
+
+        function drawBallTrailAndParticles() {
+            for (let i = 0; i < ball.trail.length; i++) {
+                const t = ball.trail[i];
+                const ratio = (i + 1) / ball.trail.length;
+                ctx.fillStyle = t.isFire
+                    ? `rgba(249, 115, 22, ${ratio * 0.55})`
+                    : `rgba(255, 255, 255, ${ratio * 0.28})`;
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, ball.radius * ratio * (t.isFire ? 1.15 : 0.85), 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            particles.forEach(pt => {
+                ctx.save();
+                ctx.globalAlpha = pt.alpha;
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        function drawBall() {
+            ctx.save();
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+            ctx.beginPath();
+            ctx.ellipse(ball.x + 4, ball.y + 6, ball.radius * 0.95, ball.radius * 0.78, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.translate(ball.x, ball.y);
+            ctx.rotate(ball.rotation);
+
+            // 캐논 슛 상태일 때 불꽃 오라
+            if (ball.isCannonShot) {
+                ctx.fillStyle = 'rgba(251, 146, 60, 0.65)';
+                ctx.beginPath();
+                ctx.arc(0, 0, ball.radius + 7, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.fillStyle = ball.isCannonShot ? '#fef08a' : '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = ball.isCannonShot ? '#ea580c' : '#1e293b';
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const a = (i * 2 * Math.PI) / 5;
+                const px = Math.cos(a) * 5.5;
+                const py = Math.sin(a) * 5.5;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawFloatingTexts() {
+            floatingTexts.forEach(ft => {
+                ctx.save();
+                ctx.globalAlpha = Math.min(1, ft.life * 1.4);
+                ctx.font = '900 20px "Black Han Sans", "Noto Sans KR", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = 'rgba(15, 23, 42, 0.9)';
+                ctx.strokeText(ft.text, ft.x, ft.y);
+                ctx.fillStyle = ft.color;
+                ctx.fillText(ft.text, ft.x, ft.y);
+                ctx.restore();
+            });
+        }
+
+        // ============================================================================
+        // 9. 메인 게임 루프 & 키보드/터치 이벤트 바인딩
+        // ============================================================================
+        let lastTimestamp = 0;
+
+        function gameLoop(timestamp) {
+            if (!lastTimestamp) lastTimestamp = timestamp;
+            const dt = Math.min(0.05, (timestamp - lastTimestamp) / 1000);
+            lastTimestamp = timestamp;
+
+            update(dt);
+            render();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 키보드 이벤트 (이동, 슛, 질주 + 스킬 Q/1, E/2, R/3)
+        window.addEventListener('keydown', (e) => {
+            const code = e.code;
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
+                e.preventDefault();
+            }
+
+            if (code === 'KeyW' || code === 'ArrowUp') keys.up = true;
+            if (code === 'KeyS' || code === 'ArrowDown') keys.down = true;
+            if (code === 'KeyA' || code === 'ArrowLeft') keys.left = true;
+            if (code === 'KeyD' || code === 'ArrowRight') keys.right = true;
+            if (code === 'ShiftLeft' || code === 'ShiftRight') keys.sprint = true;
+
+            // 액티브 스킬 단축키
+            if (code === 'KeyQ' || code === 'Digit1') {
+                triggerSkillCannon();
+            } else if (code === 'KeyE' || code === 'Digit2') {
+                triggerSkillDash();
+            } else if (code === 'KeyR' || code === 'Digit3') {
+                triggerSkillMagnet();
+            }
+
+            if (code === 'Space' && !keys.kick) {
+                keys.kick = true;
+                if (gameState.phase === 'PLAYING' && userStriker) {
+                    userStriker.isCharging = true;
+                    userStriker.chargeTime = 0.12;
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const code = e.code;
+            if (code === 'KeyW' || code === 'ArrowUp') keys.up = false;
+            if (code === 'KeyS' || code === 'ArrowDown') keys.down = false;
+            if (code === 'KeyA' || code === 'ArrowLeft') keys.left = false;
+            if (code === 'KeyD' || code === 'ArrowRight') keys.right = false;
+            if (code === 'ShiftLeft' || code === 'ShiftRight') keys.sprint = false;
+
+            if (code === 'Space') {
+                keys.kick = false;
+                if (gameState.phase === 'PLAYING' && userStriker && userStriker.isCharging) {
+                    const powerRatio = Math.min(1, userStriker.chargeTime / 0.65);
+                    performKick(userStriker, powerRatio);
+                    userStriker.isCharging = false;
+                    userStriker.chargeTime = 0;
+                }
+            }
+        });
+
+        function bindHoldButton(elementId, onDown, onUp) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+
+            const startHandler = (e) => {
+                e.preventDefault();
+                el.classList.add('active');
+                onDown();
+            };
+            const endHandler = (e) => {
+                e.preventDefault();
+                el.classList.remove('active');
+                onUp();
+            };
+
+            el.addEventListener('mousedown', startHandler);
+            el.addEventListener('mouseup', endHandler);
+            el.addEventListener('mouseleave', endHandler);
+            el.addEventListener('touchstart', startHandler, { passive: false });
+            el.addEventListener('touchend', endHandler, { passive: false });
+            el.addEventListener('touchcancel', endHandler, { passive: false });
+        }
+
+        bindHoldButton('touch-up', () => { keys.up = true; }, () => { keys.up = false; });
+        bindHoldButton('touch-down', () => { keys.down = true; }, () => { keys.down = false; });
+        bindHoldButton('touch-left', () => { keys.left = true; }, () => { keys.left = false; });
+        bindHoldButton('touch-right', () => { keys.right = true; }, () => { keys.right = false; });
+        bindHoldButton('touch-sprint', () => { keys.sprint = true; }, () => { keys.sprint = false; });
+        bindHoldButton(
+            'touch-kick',
+            () => {
+                keys.kick = true;
+                if (gameState.phase === 'PLAYING' && userStriker) {
+                    userStriker.isCharging = true;
+                    userStriker.chargeTime = 0.14;
+                }
+            },
+            () => {
+                keys.kick = false;
+                if (gameState.phase === 'PLAYING' && userStriker && userStriker.isCharging) {
+                    const powerRatio = Math.min(1, userStriker.chargeTime / 0.65);
+                    performKick(userStriker, powerRatio);
+                    userStriker.isCharging = false;
+                    userStriker.chargeTime = 0;
+                }
+            }
+        );
+
+        // 스킬 버튼 클릭/터치 바인딩
+        document.getElementById('btn-skill-cannon').addEventListener('click', triggerSkillCannon);
+        document.getElementById('btn-skill-dash').addEventListener('click', triggerSkillDash);
+        document.getElementById('btn-skill-magnet').addEventListener('click', triggerSkillMagnet);
+
+        // UI 버튼 이벤트
+        document.getElementById('btn-start-match').addEventListener('click', startNewMatch);
+        document.getElementById('btn-play-again').addEventListener('click', startNewMatch);
+        document.getElementById('btn-quick-restart').addEventListener('click', startNewMatch);
+
+        document.getElementById('btn-mute').addEventListener('click', () => {
+            const isMuted = sound.toggleMute();
+            document.getElementById('icon-sound').textContent = isMuted ? '🔇' : '🔊';
+        });
+
+        document.getElementById('select-difficulty').addEventListener('change', (e) => {
+            gameState.difficulty = e.target.value;
+        });
+
+        document.getElementById('select-duration').addEventListener('change', (e) => {
+            gameState.duration = parseInt(e.target.value, 10);
+            if (gameState.phase === 'START') {
+                gameState.timeLeft = gameState.duration;
+                timerEl.textContent = gameState.timeLeft;
+            }
+        });
+
+        window.onload = function () {
+            initEntities();
+            requestAnimationFrame(gameLoop);
+        };
+    </script>
+</body></html>
